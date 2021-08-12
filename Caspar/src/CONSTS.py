@@ -2,8 +2,8 @@ import glob
 import pandas as pd
 from .data_process_utils import get_df_from_smi
 
-EMBEDDING_SIZE = 256
-FFD_SIZE = 512
+EMBEDDING_SIZE = 128
+FFD_SIZE = 128
 MAX_MOL_LEN = 65
 NUM_HEADS = 8
 NUM_LAYERS = 4

@@ -58,7 +58,7 @@ def loss_func(y, logits):
     '''
     loss_obj = tf.keras.losses.SparseCategoricalCrossentropy(
         from_logits=True, reduction='none')
-    mask = tf.math.less(y, 100)
+    mask = tf.math.less(y, len(MOL_DICT))
     _loss = loss_obj(y, logits)
     mask = tf.cast(mask, _loss.dtype)
     _loss *= mask

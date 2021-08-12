@@ -19,6 +19,7 @@ def get_padding_mask(x):
     padding_mask = tf.where(valid_bool, 1, 0)
     # [BATCH, 1, MAX_MOL_LEN]
     padding_mask = tf.expand_dims(padding_mask, axis=1)
+    # [BATCH, 1, 1, MAX_MOL_LEN]
     padding_mask = tf.expand_dims(padding_mask, axis=1)
     return padding_mask
 
@@ -47,8 +48,8 @@ def get_token_embedding(encoded_token_inputs):
     # [BATCH, MAX_MOL_LEN, DICT_LEN]
     token_embedding = tf.one_hot(encoded_token_inputs, one_hot_depth,
                                  on_value=1.0, off_value=0.0, axis=-1)
-    token_embedding = layers.Dense(EMBEDDING_SIZE, activation="relu")(token_embedding)
     # [BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
+    token_embedding = layers.Dense(EMBEDDING_SIZE, activation="relu")(token_embedding)
     position_embedding = get_position_embedding()
     token_embedding = token_embedding + position_embedding
     token_embedding = layers.BatchNormalization()(token_embedding)
@@ -80,7 +81,6 @@ class MultiHeadAttention(layers.Layer):
         self.W_k = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
         self.W_v = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
 
-        self.dense = layers.Dense(EMBEDDING_SIZE, activation="relu")
         self.batch_norm = layers.BatchNormalization()
 
     def split_heads(self, x):
@@ -105,7 +105,6 @@ class MultiHeadAttention(layers.Layer):
         scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
         concat_attention = tf.reshape(scaled_attention, (-1, MAX_MOL_LEN, EMBEDDING_SIZE))
-        concat_attention = self.dense(concat_attention)
         concat_attention = self.batch_norm(concat_attention)
         return concat_attention
 
