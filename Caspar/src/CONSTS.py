@@ -7,7 +7,7 @@ FFD_SIZE = 512
 MAX_MOL_LEN = 65
 NUM_HEADS = 8
 NUM_LAYERS = 4
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 MOL_DICT = '#%()+-/0123456789=ABCEFHINOPS[\\]clnoprs'
 
 if not glob.glob("data/df_data.csv"):

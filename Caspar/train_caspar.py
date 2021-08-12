@@ -1,10 +1,11 @@
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from multiprocessing import freeze_support
 from data_gen import data_iterator_train, data_iterator_test
-from src.embed_utils import (GPTBlock, get_position_embedding, get_token_embedding,
+from src.embed_utils import (GPTBlock, get_token_embedding,
                              get_padding_mask, get_causal_attention_mask)
 from src.misc_utils import create_folder
 from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN,
@@ -40,15 +41,13 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
 def get_caspar_model():
     # [BATCH, MAX_MOL_LEN]
-    smi_inputs = layers.Input(shape=(MAX_MOL_LEN,))
+    smi_inputs = layers.Input(shape=(MAX_MOL_LEN,), dtype=np.int32)
     token_embedding = get_token_embedding(smi_inputs)
-    position_embedding = get_position_embedding()
-    token_embedding += position_embedding
     padding_mask = get_padding_mask(smi_inputs)
     causal_mask = get_causal_attention_mask()
     caspar_out = CasparLayer(NUM_LAYERS)(token_embedding, padding_mask, causal_mask)
     # [BATCH, MAX_MOL_LEN, DICT_LEN]
-    logits = tf.keras.layers.Dense(len(MOL_DICT))(caspar_out)
+    logits = tf.keras.layers.Dense(len(MOL_DICT) + 1)(caspar_out)
     return smi_inputs, logits
 
 

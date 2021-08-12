@@ -2,7 +2,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 from .CONSTS import (EMBEDDING_SIZE, FFD_SIZE, MAX_MOL_LEN,
-                     MOL_DICT, NUM_HEADS, BATCH_SIZE)
+                     MOL_DICT, NUM_HEADS)
 
 
 def batch_matmul(batch_mat, mat):
@@ -19,6 +19,7 @@ def get_padding_mask(x):
     padding_mask = tf.where(valid_bool, 1, 0)
     # [BATCH, 1, MAX_MOL_LEN]
     padding_mask = tf.expand_dims(padding_mask, axis=1)
+    padding_mask = tf.expand_dims(padding_mask, axis=1)
     return padding_mask
 
 
@@ -33,11 +34,8 @@ def get_causal_attention_mask():
 def get_position_embedding():
     # [0,1,...,MAX_MOL_LEN]
     position_range = tf.range(0, MAX_MOL_LEN)
-    # [MAX_MOL_LEN, MAX_MOL_LEN]
-    position_encoding = tf.one_hot(position_range, MAX_MOL_LEN,
-                                   on_value=1.0, off_value=0.0, axis=-1)
     # [MAX_MOL_LEN, EMBEDDING_SIZE]
-    position_embedding = layers.Embedding(MAX_MOL_LEN, EMBEDDING_SIZE)(position_encoding)
+    position_embedding = layers.Embedding(MAX_MOL_LEN, EMBEDDING_SIZE)(position_range)
     return position_embedding
 
 
@@ -52,7 +50,7 @@ def get_token_embedding(encoded_token_inputs):
     token_embedding = layers.Dense(EMBEDDING_SIZE, activation="relu")(token_embedding)
     # [BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
     position_embedding = get_position_embedding()
-    token_embedding = + position_embedding
+    token_embedding = token_embedding + position_embedding
     token_embedding = layers.BatchNormalization()(token_embedding)
     return token_embedding
 
@@ -82,8 +80,11 @@ class MultiHeadAttention(layers.Layer):
         self.W_k = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
         self.W_v = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
 
+        self.dense = layers.Dense(EMBEDDING_SIZE, activation="relu")
+        self.batch_norm = layers.BatchNormalization()
+
     def split_heads(self, x):
-        x = tf.reshape(x, (BATCH_SIZE, -1, self.num_heads, self.depth))
+        x = tf.reshape(x, (-1, MAX_MOL_LEN, self.num_heads, self.depth))
         # [BATCH, NUM_HEADS, MAX_MOL_LEN, DEPTH]
         return tf.transpose(x, perm=[0, 2, 1, 3])
 
@@ -103,9 +104,9 @@ class MultiHeadAttention(layers.Layer):
         # [BATCH_SIZE, MAX_MOL_LEN, NUM_HEADS, DEPTH]
         scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        concat_attention = tf.reshape(scaled_attention, (BATCH_SIZE, -1, EMBEDDING_SIZE))
-        concat_attention = layers.Dense(EMBEDDING_SIZE, activation="relu")(concat_attention)
-        concat_attention = layers.BatchNormalization()(concat_attention)
+        concat_attention = tf.reshape(scaled_attention, (-1, MAX_MOL_LEN, EMBEDDING_SIZE))
+        concat_attention = self.dense(concat_attention)
+        concat_attention = self.batch_norm(concat_attention)
         return concat_attention
 
 
@@ -122,6 +123,9 @@ class GPTBlock(layers.Layer):
         self.mha1 = MultiHeadAttention(NUM_HEADS)
         self.mha2 = MultiHeadAttention(NUM_HEADS)
         self.ffn = get_point_wise_feed_forward_network(FFD_SIZE)
+        self.batch_norm1 = layers.BatchNormalization()
+        self.batch_norm2 = layers.BatchNormalization()
+        self.batch_norm3 = layers.BatchNormalization()
 
     def call(self, x, padding_mask, causal_mask):
         '''
@@ -129,20 +133,19 @@ class GPTBlock(layers.Layer):
         '''
         causal_mask = tf.where(tf.equal(causal_mask, 0), -1e10, 1)
         padding_mask = tf.where(tf.equal(padding_mask, 0), -1e10, 1)
-
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
         attn1 = self.mha1(x, causal_mask)
         # residual connection
         out1 = attn1 + x
-        out1 = layers.BatchNormalization()(out1)
+        out1 = self.batch_norm1(out1)
 
         att2 = self.mha2(out1, padding_mask)
         # residual connection
         out2 = att2 + out1
-        out2 = layers.BatchNormalization()(out2)
+        out2 = self.batch_norm2(out2)
 
         ffn_out = self.ffn(out2)
         # residual connection
         ffn_out = ffn_out + out2
-        ffn_out = layers.BatchNormalization()(ffn_out)
+        ffn_out = self.batch_norm3(ffn_out)
         return ffn_out
