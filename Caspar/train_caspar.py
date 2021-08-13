@@ -38,6 +38,10 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         arg2 = step * (self.warmup_steps ** -1.5)
         return tf.math.rsqrt(self.embed_size) * tf.math.minimum(arg1, arg2)
 
+    def get_config(self):
+        config = {'warmup_steps': self.warmup_steps}
+        return config
+
 
 def get_caspar_model():
     # [BATCH, MAX_MOL_LEN]
@@ -47,7 +51,7 @@ def get_caspar_model():
     causal_mask = get_causal_attention_mask()
     caspar_out = CasparLayer(NUM_LAYERS)(token_embedding, padding_mask, causal_mask)
     # [BATCH, MAX_MOL_LEN, DICT_LEN]
-    logits = tf.keras.layers.Dense(len(MOL_DICT) + 1)(caspar_out)
+    logits = layers.Dense(len(MOL_DICT) + 1)(caspar_out)
     return smi_inputs, logits
 
 
@@ -136,6 +140,7 @@ if __name__ == "__main__":
     model.compile(optimizer=opt_op,
                   loss_fn=loss_func,
                   metric_fn=get_metrics)
+    model.summary()
 
     model.fit(data_iterator_train(),
               epochs=30,
