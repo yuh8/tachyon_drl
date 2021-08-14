@@ -27,7 +27,10 @@ def get_padding_mask(x):
 def get_causal_attention_mask():
     # [MAX_MOL_LEN, MAX_MOL_LEN]
     causal_mask = tf.linalg.band_part(tf.ones((MAX_MOL_LEN, MAX_MOL_LEN)), -1, 0)
+    causal_mask = tf.cast(causal_mask, tf.int32)
     # [1, MAX_MOL_LEN, MAX_MOL_LEN]
+    causal_mask = tf.expand_dims(causal_mask, axis=0)
+    # [1, 1, MAX_MOL_LEN, MAX_MOL_LEN]
     causal_mask = tf.expand_dims(causal_mask, axis=0)
     return causal_mask
 
@@ -61,7 +64,8 @@ def get_singlehead_attention(Q, K, V, mask):
     # [BATCH, NUM_HEADS, MAX_MOL_LEN, MAX_MOL_LEN]
     scaled_attention = tf.math.divide(Q @ K_transpose,
                                       tf.math.sqrt(float(EMBEDDING_SIZE)))
-    scaled_attention = scaled_attention * mask
+    invalid_mask = tf.where(tf.equal(mask, 0), -1e10, 1)
+    scaled_attention = scaled_attention * invalid_mask
     # [BATCH_SIZE, NUM_HEADS, MAX_MOL_LEN, DEPTH]
     scaled_attention = tf.nn.softmax(scaled_attention, axis=-1) @ V
     return scaled_attention
@@ -117,39 +121,29 @@ def get_point_wise_feed_forward_network(dff):
 class GPTBlock(layers.Layer):
     def __init__(self):
         super(GPTBlock, self).__init__()
-        self.mha1 = MultiHeadAttention(NUM_HEADS)
-        self.mha2 = MultiHeadAttention(NUM_HEADS)
+        self.mha = MultiHeadAttention(NUM_HEADS)
         self.ffn = get_point_wise_feed_forward_network(FFD_SIZE)
         self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm3 = layers.LayerNormalization(epsilon=1e-6)
 
         self.dropout1 = layers.Dropout(DROPOUT_RATE)
         self.dropout2 = layers.Dropout(DROPOUT_RATE)
-        self.dropout3 = layers.Dropout(DROPOUT_RATE)
 
     def call(self, x, padding_mask, causal_mask):
         '''
         x: [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
         '''
-        causal_mask = tf.where(tf.equal(causal_mask, 0), -1e10, 1)
-        padding_mask = tf.where(tf.equal(padding_mask, 0), -1e10, 1)
+        mask = causal_mask * padding_mask
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        attn1 = self.mha1(x, causal_mask)
+        attn1 = self.mha(x, mask)
         attn1 = self.dropout1(attn1)
         # residual connection
         out1 = attn1 + x
         out1 = self.layernorm1(out1)
 
-        attn2 = self.mha2(out1, padding_mask)
-        attn2 = self.dropout2(attn2)
+        ffn_out = self.ffn(out1)
         # residual connection
-        out2 = attn2 + out1
-        out2 = self.layernorm2(out2)
-
-        ffn_out = self.ffn(out2)
-        # residual connection
-        ffn_out = ffn_out + out2
-        ffn_out = self.dropout3(ffn_out)
-        ffn_out = self.layernorm3(ffn_out)
+        ffn_out = ffn_out + out1
+        ffn_out = self.dropout2(ffn_out)
+        ffn_out = self.layernorm2(ffn_out)
         return ffn_out
