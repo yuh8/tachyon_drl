@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
-from .CONSTS import (EMBEDDING_SIZE, FFD_SIZE, MAX_MOL_LEN,
+from .CONSTS import (DROPOUT_RATE, EMBEDDING_SIZE, FFD_SIZE, MAX_MOL_LEN,
                      MOL_DICT, NUM_HEADS)
 
 
@@ -112,23 +112,28 @@ def get_point_wise_feed_forward_network(dff):
 class BERTblock(layers.Layer):
     def __init__(self):
         super(BERTblock, self).__init__()
-        self.mha = MultiHeadAttention(NUM_HEADS)
+        # self.mha = MultiHeadAttention(NUM_HEADS)
+        self.mha = layers.MultiHeadAttention(NUM_HEADS, EMBEDDING_SIZE)
         self.ffn = get_point_wise_feed_forward_network(FFD_SIZE)
-        self.batchnorm1 = layers.BatchNormalization()
-        self.batchnorm2 = layers.BatchNormalization()
+        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
+        self.dropout1 = layers.Dropout(0.3)
+        self.dropout2 = layers.Dropout(0.3)
 
     def call(self, x, padding_mask):
         '''
         x: [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
         '''
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        attn1 = self.mha(x, padding_mask)
+        attn1 = self.mha(x, x, attention_mask=padding_mask)
+        attn1 = self.dropout1(attn1)
         # residual connection
         out1 = attn1 + x
-        out1 = self.batchnorm1(out1)
+        out1 = self.layernorm1(out1)
 
         ffn_out = self.ffn(out1)
+        ffn_out = self.dropout2(ffn_out)
         # residual connection
         ffn_out = ffn_out + out1
-        ffn_out = self.batchnorm2(ffn_out)
+        ffn_out = self.layernorm2(ffn_out)
         return ffn_out

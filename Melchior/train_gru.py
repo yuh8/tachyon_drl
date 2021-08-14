@@ -6,50 +6,41 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from multiprocessing import freeze_support
 from data_gen import data_iterator_train, data_iterator_test
-from src.embed_utils import (BERTblock,
-                             get_token_embedding,
-                             get_padding_mask)
 from src.misc_utils import create_folder
-from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN,
+from src.CONSTS import (MAX_MOL_LEN, MOL_DICT,
                         NUM_LAYERS, BATCH_SIZE)
 
 
-def get_causal_attention_mask():
-    # [MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.linalg.band_part(tf.ones((MAX_MOL_LEN, MAX_MOL_LEN)), -1, 0)
-    causal_mask = tf.cast(causal_mask, tf.int32)
-    # [1, MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.expand_dims(causal_mask, axis=0)
-    # [1, 1, MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.expand_dims(causal_mask, axis=0)
-    return causal_mask
+def get_padding_mask(x):
+    # [BATCH, MAX_MOL_LEN]
+    padding_mask = tf.less(x, len(MOL_DICT))
+    return padding_mask
 
 
-class MelchiorLayer(layers.Layer):
-    def __init__(self, num_layers):
-        super(MelchiorLayer, self).__init__()
-        self.num_layers = num_layers
-        self.bert_layers = [BERTblock() for _ in range(num_layers)]
+class GRULayer(layers.Layer):
+    def __init__(self):
+        super(GRULayer, self).__init__()
+        self.embedding = layers.Embedding(len(MOL_DICT) + 1, 128)
+        self.gru1 = layers.GRU(128, return_sequences=True, dropout=0.3)
+        self.gru2 = layers.GRU(128, dropout=0.3)
+        self.dense = layers.Dense(128, activation='relu')
 
     def call(self, x, padding_mask):
-        for i in range(self.num_layers):
-            x = self.bert_layers[i](x, padding_mask)
+        x = self.embedding(x)
+        x = self.gru1(x, mask=padding_mask)
+        x = self.gru2(x, mask=padding_mask)
+        #[BATCH, MAX_MOL_LEN, 128]
+        y_pred = self.dense(x)
+        return y_pred
 
-        #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-        return x
 
-
-def get_melchior_model():
+def get_gru_model():
     # [BATCH, MAX_MOL_LEN]
     smi_inputs = layers.Input(shape=(MAX_MOL_LEN,), dtype=np.int32)
-    token_embedding = get_token_embedding(smi_inputs)
     padding_mask = get_padding_mask(smi_inputs)
-    causal_mask = get_causal_attention_mask()
-    mask = padding_mask * causal_mask
-    melchior_out = MelchiorLayer(NUM_LAYERS)(token_embedding, mask)
-    melchior_out = layers.Dense(EMBEDDING_SIZE, activation='relu')(melchior_out[:, -1, :])
-    # [BATCH, EMBEDDING_SIZE]
-    y_pred = layers.Dense(1, activation=None)(melchior_out)
+    gru_out = GRULayer()(smi_inputs, padding_mask)
+    # [BATCH, MAX_MOL_LEN, DICT_LEN]
+    y_pred = layers.Dense(1, activation=None)(gru_out)
     return smi_inputs, y_pred
 
 
@@ -75,7 +66,7 @@ if __name__ == "__main__":
     with open('data/test_data/Xy_val.pkl', 'rb') as handle:
         Xy_val = pickle.load(handle)
     # train
-    smi_inputs, y_pred = get_melchior_model()
+    smi_inputs, y_pred = get_gru_model()
     opt_op = get_optimizer(steps_per_epoch)
     model = keras.Model(smi_inputs, y_pred)
     model.compile(optimizer='adam',
