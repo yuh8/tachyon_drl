@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -9,8 +10,8 @@ from src.embed_utils import (BERTblock,
                              get_token_embedding,
                              get_padding_mask)
 from src.misc_utils import create_folder
-from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN,
-                        NUM_LAYERS, MOL_DICT, BATCH_SIZE)
+from src.CONSTS import (MAX_MOL_LEN,
+                        NUM_LAYERS, BATCH_SIZE)
 
 
 class MelchiorLayer(layers.Layer):
@@ -27,126 +28,52 @@ class MelchiorLayer(layers.Layer):
         return x
 
 
-class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, warmup_steps=4000):
-        super(CustomSchedule, self).__init__()
-
-        self.embed_size = tf.cast(EMBEDDING_SIZE, tf.float32)
-        self.warmup_steps = warmup_steps
-
-    def __call__(self, step):
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps ** -1.5)
-        return tf.math.rsqrt(self.embed_size) * tf.math.minimum(arg1, arg2)
-
-    def get_config(self):
-        config = {'warmup_steps': self.warmup_steps}
-        return config
-
-
 def get_melchior_model():
     # [BATCH, MAX_MOL_LEN]
     smi_inputs = layers.Input(shape=(MAX_MOL_LEN,), dtype=np.int32)
     token_embedding = get_token_embedding(smi_inputs)
     padding_mask = get_padding_mask(smi_inputs)
     melchior_out = MelchiorLayer(NUM_LAYERS)(token_embedding, padding_mask)
-    # [BATCH, MAX_MOL_LEN, DICT_LEN]
-    logits = layers.Dense(len(MOL_DICT) + 1)(melchior_out)
-    return smi_inputs, logits
+    # [BATCH, EMBEDDING_SIZE]
+    melchior_out = tf.reduce_max(melchior_out, axis=1)
+    y_pred = layers.Dense(1, activation='sigmoid')(melchior_out)
+    return smi_inputs, y_pred
 
 
-def loss_func(y, logits):
-    '''
-    y : [BATCH, MAX_MOL_LEN]
-    logits: [BATCH, MAX_MOL_LEN, DICT_SIZE]
-    '''
-    loss_obj = tf.keras.losses.SparseCategoricalCrossentropy(
-        from_logits=True, reduction='none')
-    mask = tf.math.less(y, len(MOL_DICT))
-    _loss = loss_obj(y, logits)
-    mask = tf.cast(mask, _loss.dtype)
-    _loss *= mask
-    return tf.reduce_sum(_loss) / tf.reduce_sum(mask)
-
-
-def get_optimizer():
-    lr_fn = CustomSchedule()
-    opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn,
-                                      beta_1=0.9,
-                                      beta_2=0.98,
-                                      epsilon=1e-9)
+def get_optimizer(steps_per_epoch):
+    lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+        [steps_per_epoch * 10, steps_per_epoch * 20, steps_per_epoch * 30], [0.001, 0.0001, 0.00001, 0.000001], name=None
+    )
+    opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
     return opt_op
-
-
-def get_metrics():
-    train_acc = tf.keras.metrics.Accuracy(name="train_acc")
-    val_acc = tf.keras.metrics.Accuracy(name="val_acc")
-    return train_acc, val_acc
-
-
-class Caspar(keras.Model):
-    def compile(self, optimizer, loss_fn, metric_fn):
-        super(Caspar, self).compile()
-        self.optimizer = optimizer
-        self.loss_fn = loss_fn
-        self.train_acc, self.val_acc = metric_fn()
-
-    def train_step(self, train_data):
-        x, y = train_data
-
-        # capture the scope of gradient
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)
-            loss = self.loss_fn(y, y_pred)
-
-        # Compute gradients
-        trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
-
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-
-        # compute metrics keeping an moving average
-        y_pred_flat = tf.argmax(y_pred, axis=-1)
-        self.train_acc.update_state(y, y_pred_flat)
-        return {"train_acc": self.train_acc.result()}
-
-    def test_step(self, val_data):
-        x, y = val_data
-        # predict
-        y_pred = self(x, training=False)
-        # compute metrics keeping an moving average
-        y_pred_flat = tf.argmax(y_pred, axis=-1)
-        self.val_acc.update_state(y, y_pred_flat)
-        return {"val_acc": self.val_acc.result()}
-
-    @property
-    def metrics(self):
-        # clear metrics after every epoch
-        return [self.train_acc, self.val_acc]
 
 
 if __name__ == "__main__":
     freeze_support()
     model_path = 'model/train/'
     create_folder(model_path)
-    callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path, save_freq='epoch')]
+    callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path,
+                                                    save_freq='epoch',
+                                                    save_weights_only=True,
+                                                    monitor='loss',
+                                                    mode='min',
+                                                    save_best_only=True)]
     steps_per_epoch = pd.read_csv('data/train_data/df_train.csv').shape[0] // BATCH_SIZE
-    val_steps = pd.read_csv('data/test_data/df_val.csv').shape[0] // BATCH_SIZE
+    with open('data/test_data/Xy_val.pkl', 'rb') as handle:
+        Xy_val = pickle.load(handle)
     # train
-    smi_inputs, logits = get_melchior_model()
-    model = Caspar(smi_inputs, logits)
-    opt_op = get_optimizer()
-    model.compile(optimizer=opt_op,
-                  loss_fn=loss_func,
-                  metric_fn=get_metrics)
+    smi_inputs, y_pred = get_melchior_model()
+    opt_op = get_optimizer(steps_per_epoch)
+    model = keras.Model(smi_inputs, y_pred)
+    model.compile(optimizer='adam',
+                  loss='mse')
     model.summary()
 
     model.fit(data_iterator_train(),
-              epochs=30,
-              validation_data=data_iterator_test('data/test_data/df_val.csv'),
-              validation_steps=val_steps,
+              epochs=60,
+              validation_data=Xy_val,
               callbacks=callbacks,
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('data/test_data/df_test.csv'),
                          return_dict=True)
+    model.save('model/Melchior/', save_traces=False)

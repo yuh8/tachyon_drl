@@ -9,7 +9,7 @@ NUM_HEADS = 8
 NUM_LAYERS = 6
 DROPOUT_RATE = 0.1
 BATCH_SIZE = 16
-MOL_DICT = '#%@.()+-/0123456789=ABCEFHINOPS[\\]clnoprs'
+MOL_DICT = '#%@.()+-/0123456789=ABCEFHINOPS[\\]aceilnoprs'
 
 if not glob.glob("data/df_data.csv"):
     get_df_from_smi("data/data_train.smi")
