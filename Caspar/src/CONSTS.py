@@ -2,11 +2,11 @@ import glob
 import pandas as pd
 from .data_process_utils import get_df_from_smi
 
-EMBEDDING_SIZE = 128
-FFD_SIZE = 128
+EMBEDDING_SIZE = 256
+FFD_SIZE = 256
 MAX_MOL_LEN = 65
-NUM_HEADS = 1
-NUM_LAYERS = 2
+NUM_HEADS = 2
+NUM_LAYERS = 4
 DROPOUT_RATE = 0.1
 BATCH_SIZE = 16
 MOL_DICT = '#%@.()+-/0123456789=ABCEFHINOPS[\\]aceilnoprs'
