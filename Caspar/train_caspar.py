@@ -9,8 +9,7 @@ from data_gen import data_iterator_train, data_iterator_test
 from src.embed_utils import (GPTBlock, get_token_embedding,
                              get_padding_mask, get_causal_attention_mask)
 from src.misc_utils import create_folder
-from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN,
-                        NUM_LAYERS, MOL_DICT, BATCH_SIZE)
+from src.CONSTS import (MAX_MOL_LEN, NUM_LAYERS, MOL_DICT, BATCH_SIZE)
 
 
 class CasparLayer(layers.Layer):
@@ -27,21 +26,12 @@ class CasparLayer(layers.Layer):
         return x
 
 
-class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-    def __init__(self, warmup_steps=4000):
-        super(CustomSchedule, self).__init__()
-
-        self.embed_size = tf.cast(EMBEDDING_SIZE, tf.float32)
-        self.warmup_steps = warmup_steps
-
-    def __call__(self, step):
-        arg1 = tf.math.rsqrt(step)
-        arg2 = step * (self.warmup_steps ** -1.5)
-        return tf.math.rsqrt(self.embed_size) * tf.math.minimum(arg1, arg2)
-
-    def get_config(self):
-        config = {'warmup_steps': self.warmup_steps}
-        return config
+def get_optimizer(steps_per_epoch):
+    lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+        [steps_per_epoch * 10, steps_per_epoch * 20], [0.0001, 0.00001, 0.000001], name=None
+    )
+    opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
+    return opt_op
 
 
 def get_caspar_model():
@@ -70,15 +60,6 @@ def loss_func(y, logits):
     return tf.reduce_sum(_loss) / tf.reduce_sum(mask)
 
 
-def get_optimizer():
-    lr_fn = CustomSchedule()
-    opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn,
-                                      beta_1=0.9,
-                                      beta_2=0.98,
-                                      epsilon=1e-9)
-    return opt_op
-
-
 if __name__ == "__main__":
     freeze_support()
     model_path = 'model/train/'
@@ -96,15 +77,15 @@ if __name__ == "__main__":
     # train
     smi_inputs, logits = get_caspar_model()
     model = keras.Model(smi_inputs, logits)
-    model.compile(optimizer=get_optimizer(),
+    model.compile(optimizer=get_optimizer(steps_per_epoch),
                   loss=loss_func)
     model.summary()
 
     model.fit(data_iterator_train(),
-              epochs=3,
+              epochs=30,
               validation_data=Xy_val,
               callbacks=callbacks,
-              steps_per_epoch=100)
+              steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('data/test_data/df_test.csv'),
                          return_dict=True)
     model.save('model/Caspar/', save_traces=False)

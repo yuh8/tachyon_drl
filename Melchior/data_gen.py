@@ -28,7 +28,6 @@ def get_train_val_test_data():
     min_y = np.quantile(df_train.pCHEMBL.values, 0.02)
     with open('data/train_data/' + 'y_max_min.pkl', 'wb') as f:
         pickle.dump((min_y, max_y), f)
-    breakpoint()
 
 
 def get_encoded_smi(smi):

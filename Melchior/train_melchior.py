@@ -10,19 +10,7 @@ from src.embed_utils import (BERTblock,
                              get_token_embedding,
                              get_padding_mask)
 from src.misc_utils import create_folder
-from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN,
-                        NUM_LAYERS, BATCH_SIZE)
-
-
-def get_causal_attention_mask():
-    # [MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.linalg.band_part(tf.ones((MAX_MOL_LEN, MAX_MOL_LEN)), -1, 0)
-    causal_mask = tf.cast(causal_mask, tf.int32)
-    # [1, MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.expand_dims(causal_mask, axis=0)
-    # [1, 1, MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.expand_dims(causal_mask, axis=0)
-    return causal_mask
+from src.CONSTS import EMBEDDING_SIZE, MAX_MOL_LEN, NUM_LAYERS, BATCH_SIZE
 
 
 class MelchiorLayer(layers.Layer):
@@ -44,18 +32,20 @@ def get_melchior_model():
     smi_inputs = layers.Input(shape=(MAX_MOL_LEN,), dtype=np.int32)
     token_embedding = get_token_embedding(smi_inputs)
     padding_mask = get_padding_mask(smi_inputs)
-    causal_mask = get_causal_attention_mask()
-    mask = padding_mask * causal_mask
-    melchior_out = MelchiorLayer(NUM_LAYERS)(token_embedding, mask)
-    melchior_out = layers.Dense(EMBEDDING_SIZE, activation='relu')(melchior_out[:, -1, :])
-    # [BATCH, EMBEDDING_SIZE]
+    #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
+    melchior_out = MelchiorLayer(NUM_LAYERS)(token_embedding, padding_mask)
+    #[BATCH, EMBEDDING_SIZE]
+    # melchior_out = tf.reduce_max(melchior_out, axis=1)
+    melchior_out = tf.reshape(melchior_out, (-1, MAX_MOL_LEN * EMBEDDING_SIZE))
+    y_pred = layers.Dense(EMBEDDING_SIZE, activation='relu')(melchior_out)
+    # [BATCH, 1]
     y_pred = layers.Dense(1, activation=None)(melchior_out)
     return smi_inputs, y_pred
 
 
 def get_optimizer(steps_per_epoch):
     lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-        [steps_per_epoch * 20, steps_per_epoch * 30], [0.001, 0.0001, 0.00001], name=None
+        [steps_per_epoch * 20, steps_per_epoch * 30], [0.0001, 0.00001, 0.000001], name=None
     )
     opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
     return opt_op

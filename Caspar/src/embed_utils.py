@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras import layers
 from .CONSTS import (EMBEDDING_SIZE, FFD_SIZE, MAX_MOL_LEN,
                      MOL_DICT, NUM_HEADS, DROPOUT_RATE)
@@ -47,68 +46,11 @@ def get_token_embedding(encoded_token_inputs):
     '''
     encoded_token_input: [BATCH, MAX_MOL_LEN]
     '''
-    one_hot_depth = len(MOL_DICT) + 1
-    # [BATCH, MAX_MOL_LEN, DICT_LEN]
-    token_embedding = tf.one_hot(encoded_token_inputs, one_hot_depth,
-                                 on_value=1.0, off_value=0.0, axis=-1)
     # [BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-    token_embedding = layers.Dense(EMBEDDING_SIZE, activation="relu")(token_embedding)
+    token_embedding = layers.Embedding(len(MOL_DICT) + 1, EMBEDDING_SIZE)(encoded_token_inputs)
     position_embedding = get_position_embedding()
     token_embedding = token_embedding + position_embedding
     return token_embedding
-
-
-def get_singlehead_attention(Q, K, V, mask):
-    # [BATCH_SIZE, NUM_HEADS, DEPTH, MAX_MOL_LEN]
-    K_transpose = tf.transpose(K, perm=[0, 1, 3, 2])
-    # [BATCH, NUM_HEADS, MAX_MOL_LEN, MAX_MOL_LEN]
-    scaled_attention = tf.math.divide(Q @ K_transpose,
-                                      tf.math.sqrt(float(EMBEDDING_SIZE)))
-    invalid_mask = tf.where(tf.equal(mask, 0), -1e10, 1)
-    scaled_attention = scaled_attention * invalid_mask
-    # [BATCH_SIZE, NUM_HEADS, MAX_MOL_LEN, DEPTH]
-    scaled_attention = tf.nn.softmax(scaled_attention, axis=-1) @ V
-    return scaled_attention
-
-
-class MultiHeadAttention(layers.Layer):
-    def __init__(self, num_heads):
-        super(MultiHeadAttention, self).__init__()
-        self.num_heads = num_heads
-        assert EMBEDDING_SIZE % num_heads == 0
-        self.depth = EMBEDDING_SIZE // num_heads
-
-        # create key, query, value matrix
-        initializer = keras.initializers.GlorotUniform()
-        self.W_q = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
-        self.W_k = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
-        self.W_v = tf.Variable(initializer([EMBEDDING_SIZE, EMBEDDING_SIZE]))
-        self.dense = layers.Dense(EMBEDDING_SIZE)
-
-    def split_heads(self, x):
-        x = tf.reshape(x, (-1, MAX_MOL_LEN, self.num_heads, self.depth))
-        # [BATCH, NUM_HEADS, MAX_MOL_LEN, DEPTH]
-        return tf.transpose(x, perm=[0, 2, 1, 3])
-
-    def call(self, token_embedding, mask):
-        # [BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-        Q = batch_matmul(token_embedding, self.W_q)
-        K = batch_matmul(token_embedding, self.W_k)
-        V = batch_matmul(token_embedding, self.W_v)
-
-        # [BATCH, NUM_HEADS, MAX_MOL_LEN, DEPTH]
-        Q = self.split_heads(Q)
-        K = self.split_heads(K)
-        V = self.split_heads(V)
-
-        # [BATCH_SIZE, NUM_HEADS, MAX_MOL_LEN, DEPTH]
-        scaled_attention = get_singlehead_attention(Q, K, V, mask)
-        # [BATCH_SIZE, MAX_MOL_LEN, NUM_HEADS, DEPTH]
-        scaled_attention = tf.transpose(scaled_attention, perm=[0, 2, 1, 3])
-        # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        concat_attention = tf.reshape(scaled_attention, (-1, MAX_MOL_LEN, EMBEDDING_SIZE))
-        concat_attention = self.dense(concat_attention)
-        return concat_attention
 
 
 def get_point_wise_feed_forward_network(dff):
@@ -121,7 +63,7 @@ def get_point_wise_feed_forward_network(dff):
 class GPTBlock(layers.Layer):
     def __init__(self):
         super(GPTBlock, self).__init__()
-        self.mha = MultiHeadAttention(NUM_HEADS)
+        self.mha = layers.MultiHeadAttention(NUM_HEADS, EMBEDDING_SIZE)
         self.ffn = get_point_wise_feed_forward_network(FFD_SIZE)
         self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
         self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
@@ -133,9 +75,9 @@ class GPTBlock(layers.Layer):
         '''
         x: [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
         '''
-        mask = causal_mask * padding_mask
+        mask = tf.minimum(causal_mask, padding_mask)
         # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        attn1 = self.mha(x, mask)
+        attn1 = self.mha(x, x, x, mask)
         attn1 = self.dropout1(attn1)
         # residual connection
         out1 = attn1 + x
