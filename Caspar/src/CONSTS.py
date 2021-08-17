@@ -1,7 +1,3 @@
-import glob
-import pandas as pd
-from .data_process_utils import get_df_from_smi
-
 EMBEDDING_SIZE = 256
 FFD_SIZE = 256
 MAX_MOL_LEN = 65
@@ -9,16 +5,17 @@ NUM_HEADS = 2
 NUM_LAYERS = 4
 DROPOUT_RATE = 0.1
 BATCH_SIZE = 16
-MOL_DICT = '#%@.()+-/0123456789=ABCEFHINOPS[\\]aceilnoprs'
 
-if not glob.glob("data/df_data.csv"):
-    get_df_from_smi("data/data_train.smi")
+atoms = [
+    'H', 'B', 'C', 'N', 'O', 'P', 'S', 'F', 'Cl', 'Br', 'I',
+    '[Se]', '[Na+]', '[Si]'
+]
+special = [
+    '(', ')', '[', ']', '=', '#', '@', '*', '%', '0', '1', '2',
+    '3', '4', '5', '6', '7', '8', '9', '.', '/', '\\', '+', '-',
+    'c', 'n', 'o', 's', 'p'
+]
+padding = ['A', 'E']  # Go, End
 
-df_train = pd.read_csv("data/df_data.csv")
-all_tokens = df_train.Data.values.tolist()
-all_tokens = "".join(all_tokens)
 
-if len(set(all_tokens)) > len(MOL_DICT):
-    MOL_DICT = ''.join(set(all_tokens))
-    MOL_DICT = sorted(MOL_DICT)
-    MOL_DICT = ''.join(MOL_DICT)
+MOL_DICT = sorted(atoms, key=len, reverse=True) + special + padding

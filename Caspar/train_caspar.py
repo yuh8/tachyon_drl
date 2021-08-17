@@ -6,24 +6,16 @@ from tensorflow import keras
 from tensorflow.keras import layers
 from multiprocessing import freeze_support
 from data_gen import data_iterator_train, data_iterator_test
-from src.embed_utils import (GPTBlock, get_token_embedding,
+from src.embed_utils import (get_gpt_block, get_token_embedding,
                              get_padding_mask, get_causal_attention_mask)
 from src.misc_utils import create_folder
 from src.CONSTS import (MAX_MOL_LEN, NUM_LAYERS, MOL_DICT, BATCH_SIZE)
 
 
-class CasparLayer(layers.Layer):
-    def __init__(self, num_layers):
-        super(CasparLayer, self).__init__()
-        self.num_layers = num_layers
-        self.gpt_layers = [GPTBlock() for _ in range(num_layers)]
-
-    def call(self, x, padding_mask, causal_mask):
-        for i in range(self.num_layers):
-            x = self.gpt_layers[i](x, padding_mask, causal_mask)
-
-        #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-        return x
+def get_decoder(x, padding_mask, causal_mask, num_layers):
+    for _ in range(num_layers):
+        x = get_gpt_block(x, padding_mask, causal_mask)
+    return x
 
 
 def get_optimizer(steps_per_epoch):
@@ -40,7 +32,7 @@ def get_caspar_model():
     token_embedding = get_token_embedding(smi_inputs)
     padding_mask = get_padding_mask(smi_inputs)
     causal_mask = get_causal_attention_mask()
-    caspar_out = CasparLayer(NUM_LAYERS)(token_embedding, padding_mask, causal_mask)
+    caspar_out = get_decoder(token_embedding, padding_mask, causal_mask, NUM_LAYERS)
     # [BATCH, MAX_MOL_LEN, DICT_LEN]
     logits = layers.Dense(len(MOL_DICT) + 1)(caspar_out)
     return smi_inputs, logits
@@ -88,4 +80,5 @@ if __name__ == "__main__":
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('data/test_data/df_test.csv'),
                          return_dict=True)
+    model.save_weights('./checkpoints/caspar')
     model.save('model/Caspar/', save_traces=False)

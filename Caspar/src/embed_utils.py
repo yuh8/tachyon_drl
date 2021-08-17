@@ -18,8 +18,6 @@ def get_padding_mask(x):
     padding_mask = tf.where(valid_bool, 1, 0)
     # [BATCH, 1, MAX_MOL_LEN]
     padding_mask = tf.expand_dims(padding_mask, axis=1)
-    # [BATCH, 1, 1, MAX_MOL_LEN]
-    padding_mask = tf.expand_dims(padding_mask, axis=1)
     return padding_mask
 
 
@@ -28,8 +26,6 @@ def get_causal_attention_mask():
     causal_mask = tf.linalg.band_part(tf.ones((MAX_MOL_LEN, MAX_MOL_LEN)), -1, 0)
     causal_mask = tf.cast(causal_mask, tf.int32)
     # [1, MAX_MOL_LEN, MAX_MOL_LEN]
-    causal_mask = tf.expand_dims(causal_mask, axis=0)
-    # [1, 1, MAX_MOL_LEN, MAX_MOL_LEN]
     causal_mask = tf.expand_dims(causal_mask, axis=0)
     return causal_mask
 
@@ -60,32 +56,16 @@ def get_point_wise_feed_forward_network(dff):
     ])
 
 
-class GPTBlock(layers.Layer):
-    def __init__(self):
-        super(GPTBlock, self).__init__()
-        self.mha = layers.MultiHeadAttention(NUM_HEADS, EMBEDDING_SIZE)
-        self.ffn = get_point_wise_feed_forward_network(FFD_SIZE)
-        self.layernorm1 = layers.LayerNormalization(epsilon=1e-6)
-        self.layernorm2 = layers.LayerNormalization(epsilon=1e-6)
-
-        self.dropout1 = layers.Dropout(DROPOUT_RATE)
-        self.dropout2 = layers.Dropout(DROPOUT_RATE)
-
-    def call(self, x, padding_mask, causal_mask):
-        '''
-        x: [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        '''
-        mask = tf.minimum(causal_mask, padding_mask)
-        # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
-        attn1 = self.mha(x, x, x, mask)
-        attn1 = self.dropout1(attn1)
-        # residual connection
-        out1 = attn1 + x
-        out1 = self.layernorm1(out1)
-
-        ffn_out = self.ffn(out1)
-        # residual connection
-        ffn_out = ffn_out + out1
-        ffn_out = self.dropout2(ffn_out)
-        ffn_out = self.layernorm2(ffn_out)
-        return ffn_out
+def get_gpt_block(x, padding_mask, causal_mask):
+    mask = tf.minimum(causal_mask, padding_mask)
+    mha = layers.MultiHeadAttention(NUM_HEADS, EMBEDDING_SIZE)
+    # [BATCH_SIZE, MAX_MOL_LEN, EMBEDDING_SIZE]
+    attn = mha(x, x, x, attention_mask=mask)
+    attn = layers.Dropout(DROPOUT_RATE)(attn)
+    attn = attn + x
+    attn = layers.LayerNormalization(epsilon=1e-6)(attn)
+    fc_out = get_point_wise_feed_forward_network(FFD_SIZE)(attn)
+    fc_out = layers.Dropout(DROPOUT_RATE)(fc_out)
+    fc_out = fc_out + attn
+    fc_out = layers.LayerNormalization(epsilon=1e-6)(fc_out)
+    return fc_out

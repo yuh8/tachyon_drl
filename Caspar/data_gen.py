@@ -23,14 +23,28 @@ def get_train_val_test_data():
     df_val.to_csv('data/test_data/df_val.csv', index=False)
 
 
+def tokenize_smi(smi):
+    N = len(smi)
+    i = 0
+    token = []
+    while i < N:
+        for symbol in MOL_DICT:
+            if symbol == smi[i:i + len(symbol)]:
+                token.append(symbol)
+                i += len(symbol)
+                break
+    return token
+
+
 def get_encoded_smi(smi):
+    tokenized_smi = tokenize_smi(smi)
     encoded_smi = []
-    for char in smi:
+    for char in tokenized_smi:
         encoded_smi.append(MOL_DICT.index(char))
 
     if len(encoded_smi) <= MAX_MOL_LEN:
         num_pads = MAX_MOL_LEN - len(encoded_smi)
-        # 39 is the padding number which will be masked
+        # len(MOL_DICT) is the padding number which will be masked
         encoded_smi += [len(MOL_DICT)] * num_pads
     else:
         encoded_smi = encoded_smi[:MAX_MOL_LEN]
@@ -53,10 +67,10 @@ def get_val_data():
 def data_iterator_train():
     df_train = pd.read_csv('data/train_data/df_train.csv')
     while True:
-        df = df_train.sample(frac=1).reset_index(drop=True)
+        df_train = df_train.sample(frac=1).reset_index(drop=True)
         x = []
         y = []
-        for _, row in df.iterrows():
+        for _, row in df_train.iterrows():
             x.append(get_encoded_smi(row.X))
             y.append(get_encoded_smi(row.Y))
             if len(x) >= BATCH_SIZE:

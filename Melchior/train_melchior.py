@@ -3,28 +3,20 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras import layers
+from tensorflow.keras import layers, models
 from multiprocessing import freeze_support
 from data_gen import data_iterator_train, data_iterator_test
-from src.embed_utils import (BERTblock,
+from src.embed_utils import (get_bert_block,
                              get_token_embedding,
                              get_padding_mask)
 from src.misc_utils import create_folder
 from src.CONSTS import EMBEDDING_SIZE, MAX_MOL_LEN, NUM_LAYERS, BATCH_SIZE
 
 
-class MelchiorLayer(layers.Layer):
-    def __init__(self, num_layers):
-        super(MelchiorLayer, self).__init__()
-        self.num_layers = num_layers
-        self.bert_layers = [BERTblock() for _ in range(num_layers)]
-
-    def call(self, x, padding_mask):
-        for i in range(self.num_layers):
-            x = self.bert_layers[i](x, padding_mask)
-
-        #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-        return x
+def get_encoder(x, padding_mask, num_layers):
+    for _ in range(num_layers):
+        x = get_bert_block(x, padding_mask)
+    return x
 
 
 def get_melchior_model():
@@ -33,7 +25,7 @@ def get_melchior_model():
     token_embedding = get_token_embedding(smi_inputs)
     padding_mask = get_padding_mask(smi_inputs)
     #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
-    melchior_out = MelchiorLayer(NUM_LAYERS)(token_embedding, padding_mask)
+    melchior_out = get_encoder(token_embedding, padding_mask, NUM_LAYERS)
     #[BATCH, EMBEDDING_SIZE]
     # melchior_out = tf.reduce_max(melchior_out, axis=1)
     melchior_out = tf.reshape(melchior_out, (-1, MAX_MOL_LEN * EMBEDDING_SIZE))
@@ -79,4 +71,9 @@ if __name__ == "__main__":
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('data/test_data/df_test.csv'),
                          return_dict=True)
+    model.save_weights('./checkpoints/melchior')
     model.save('model/Melchior/', save_traces=False)
+    model_new = models.load_model("model/Melchior/")
+    model_new.load_weights('./checkpoints/melchior')
+    res = model_new.evaluate(data_iterator_test('data/test_data/df_test.csv'),
+                             return_dict=True)

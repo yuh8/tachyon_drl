@@ -31,7 +31,7 @@ def get_df_from_smi(smi_path):
             if not parse_mol_to_smi(mol):
                 continue
             # A and E are speical tokens are start and end, respectively
-            standardized_smi = "A" + parse_mol_to_smi(mol) + "E"
+            standardized_smi = "G" + parse_mol_to_smi(mol) + "E"
             x.append(standardized_smi[:-1])
             y.append(standardized_smi[1:])
             data.append(standardized_smi)
@@ -40,4 +40,8 @@ def get_df_from_smi(smi_path):
     df.loc[:, 'X'] = x
     df.loc[:, 'Y'] = y
     df.loc[:, 'Data'] = data
-    df.to_csv('data / df_data.csv', index=False)
+    df.to_csv('../data/df_data.csv', index=False)
+
+
+if __name__ == '__main__':
+    get_df_from_smi("../data/data_train.smi")
