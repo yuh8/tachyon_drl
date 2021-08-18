@@ -1,5 +1,5 @@
 MAX_MOL_LEN = 65
-BATCH_SIZE = 4
+BATCH_SIZE = 16
 
 atoms = [
     'H', 'B', 'C', 'N', 'O', 'P', 'S', 'F', 'Cl', 'Br', 'I',

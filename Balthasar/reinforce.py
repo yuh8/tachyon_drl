@@ -25,7 +25,9 @@ def loss_function(distributed_reward_with_idx, action_probs):
     # [BATCH, MAX_MOL_LEN, 1]
     mask = tf.expand_dims(mask, axis=-1)
     # [BATCH, MAX_MOL_LEN, MOL_DICT_LEN + 1]
-    loss_ = -action_probs * distributed_reward + ALPHA * tf.math.log(action_probs)
+    loss_reward = -action_probs * distributed_reward
+    loss_entropy = action_probs * ALPHA * tf.math.log(action_probs)
+    loss_ = loss_reward + loss_entropy
     mask = tf.cast(mask, loss_.dtype)
     loss_ *= mask
     # [BATCH, MAX_MOL_LEN]
@@ -39,7 +41,7 @@ def loss_function(distributed_reward_with_idx, action_probs):
 
 def get_optimizer(steps_per_epoch):
     lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-        [steps_per_epoch * 10, steps_per_epoch * 20], [0.00001, 0.000001, 0.0000001], name=None
+        [steps_per_epoch * 10, steps_per_epoch * 20], [0.0001, 0.00001, 0.000001], name=None
     )
     opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
     return opt_op
@@ -103,6 +105,7 @@ if __name__ == "__main__":
                     smi_bank.append(smi)
 
             r, T = get_terminal_reward(generated_tokens, smi_bank, melchior)
+            r = np.clip(r, 0, 1)
             r_vec = get_padded_reward_vec(r, 0.9, T)
             distributed_reward_with_idx = np.vstack([r_vec, np.array(generated_token_ids)])
             input_batch.append(generated_token_ids)
