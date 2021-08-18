@@ -1,8 +1,10 @@
 import numpy as np
 from rdkit import Chem
 from rdkit import DataStructs
+from rdkit import RDLogger
 from .embed_utils import get_encoded_smi
 from .CONSTS import MAX_MOL_LEN, MOL_DICT
+RDLogger.DisableLog('rdApp.*')
 
 
 def get_diversity(smi_batch_a, smi_batch_b):
@@ -40,16 +42,27 @@ def is_valid_smile(smi):
 
 
 def get_terminal_reward(smi_token_list, smi_bank, melchior_net):
-    smi = "".join(smi_token_list)
-    if not is_valid_smile(smi):
-        return 0
+    if smi_token_list[-1] == "E":
+        token_list = smi_token_list[:-1]
+    else:
+        token_list = smi_token_list
 
-    encoded_smi = get_encoded_smi(smi_token_list)
-    scaled_reward = melchior_net.predict(encoded_smi)
-    T = np.where(encoded_smi[0] < len(MOL_DICT))[0][-1]
+    encoded_smi = get_encoded_smi(token_list)
+
+    if len(smi_token_list) == MAX_MOL_LEN:
+        T = MAX_MOL_LEN - 1
+    else:
+        # include the "E" at the end
+        T = np.where(encoded_smi[0] < len(MOL_DICT))[0][-1] + 2
+
+    smi = "".join(token_list)
+    if not is_valid_smile(smi):
+        return 0, T
+
+    scaled_reward = melchior_net.predict(encoded_smi)[0][0]
     diversity = 1
 
-    if len(smi_bank) > 20:
+    if len(smi_bank) >= 20:
         diversity = get_diversity([smi], smi_bank)
 
     if diversity < 0.75:

@@ -4,12 +4,21 @@ from tensorflow.keras import models
 from .CONSTS import MOL_DICT, MAX_MOL_LEN
 
 
-def import_tf_model(model_dir):
+def import_tf_model(model_dir, custom_func=None):
     try:
-        net = models.load_model(model_dir)
+        if not custom_func:
+            net = models.load_model(model_dir)
+        else:
+            net = models.load_model(model_dir, custom_objects={'loss_func':
+                                                               custom_func})
     except Exception:
         return None
     return net
+
+
+def np_one_hot(array):
+    n_values = np.max(array) + 1
+    return np.eye(n_values)[array]
 
 
 def get_encoded_smi(smi_token_list):

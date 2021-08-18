@@ -2,7 +2,7 @@ import pickle
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from load_melchior import get_melchior_model
+from reinforce import loss_function, caspar_loss_func
 from src.CONSTS import MOL_DICT, MAX_MOL_LEN, BATCH_SIZE
 from src.embed_utils import import_tf_model
 
@@ -56,12 +56,35 @@ def data_iterator_test(test_df_path):
         y = []
 
 
+def data_iterator_test_caspar(test_df_path):
+    df_test = pd.read_csv(test_df_path)
+    x = []
+    y = []
+    for _, row in df_test.iterrows():
+        x.append(get_encoded_smi(row.X))
+        y.append(get_encoded_smi(row.Y))
+        if len(x) >= BATCH_SIZE:
+            yield (np.vstack(x), np.vstack(y))
+            x = []
+            y = []
+
+    if x:
+        yield (np.vstack(x), np.vstack(y))
+        x = []
+        y = []
+
+
 def get_optimizer(steps_per_epoch):
     lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
         [steps_per_epoch * 10, steps_per_epoch * 20], [0.0001, 0.00001, 0.000001], name=None
     )
     opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
     return opt_op
+
+
+def compile_caspar_model(melchior):
+    melchior.compile(optimizer=get_optimizer(1000), loss=loss_function)
+    return melchior
 
 
 def compile_melchior_model(melchior):
@@ -78,3 +101,9 @@ if __name__ == "__main__":
 
     res = melchior_model.evaluate(data_iterator_test('data/df_test.csv'),
                                   return_dict=True)
+
+    caspar = import_tf_model("pretrained_caspar_model", custom_func=caspar_loss_func)
+    caspar_model = compile_caspar_model(caspar)
+
+    res = caspar_model.evaluate(data_iterator_test_caspar('data/df_test_caspar.csv'),
+                                return_dict=True)

@@ -40,14 +40,20 @@ def get_point_wise_feed_forward_network(dff):
     ])
 
 
+def get_point_wise_feed_forward_network(dff):
+    return tf.keras.Sequential([
+        layers.Dense(dff, activation='relu'),  # (batch_size, seq_len, dff)
+        layers.Dense(EMBEDDING_SIZE)  # (batch_size, seq_len, d_model)
+    ])
+
+
 def get_bert_block(x, padding_mask):
     mha = layers.MultiHeadAttention(NUM_HEADS, EMBEDDING_SIZE)
     attn = mha(x, x, x, attention_mask=padding_mask)
     attn = layers.Dropout(DROPOUT_RATE)(attn)
     attn = attn + x
     attn = layers.LayerNormalization(epsilon=1e-6)(attn)
-    fc_out = layers.Dense(FFD_SIZE, activation='relu')(attn)
-    fc_out = layers.Dense(EMBEDDING_SIZE, activation='relu')(fc_out)
+    fc_out = get_point_wise_feed_forward_network(FFD_SIZE)(attn)
     fc_out = layers.Dropout(DROPOUT_RATE)(fc_out)
     fc_out = fc_out + attn
     fc_out = layers.LayerNormalization(epsilon=1e-6)(fc_out)

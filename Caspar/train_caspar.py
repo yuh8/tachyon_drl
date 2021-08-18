@@ -56,12 +56,13 @@ if __name__ == "__main__":
     freeze_support()
     model_path = 'model/train/'
     create_folder(model_path)
-    callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path,
-                                                    save_freq='epoch',
-                                                    save_weights_only=True,
-                                                    monitor='loss',
-                                                    mode='min',
-                                                    save_best_only=True)]
+    # callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path,
+    #                                                 save_freq='epoch',
+    #                                                 save_weights_only=True,
+    #                                                 monitor='loss',
+    #                                                 mode='min',
+    #                                                 save_best_only=True)]
+    callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path)]
     steps_per_epoch = pd.read_csv('data/train_data/df_train.csv').shape[0] // BATCH_SIZE
     with open('data/test_data/Xy_val.pkl', 'rb') as handle:
         Xy_val = pickle.load(handle)
@@ -74,7 +75,7 @@ if __name__ == "__main__":
     model.summary()
 
     model.fit(data_iterator_train(),
-              epochs=30,
+              epochs=2,
               validation_data=Xy_val,
               callbacks=callbacks,
               steps_per_epoch=steps_per_epoch)

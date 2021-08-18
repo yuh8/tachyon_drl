@@ -14,7 +14,7 @@ special = [
     '3', '4', '5', '6', '7', '8', '9', '.', '/', '\\', '+', '-',
     'c', 'n', 'o', 's', 'p'
 ]
-padding = ['G', 'E']  # Go, Padding ,End
+padding = ['A', 'E']  # Go, End
 
 
 MOL_DICT = sorted(atoms, key=len, reverse=True) + special + padding
