@@ -60,6 +60,7 @@ def get_terminal_reward(smi_token_list, smi_bank, melchior_net):
         return 0, T
 
     scaled_reward = melchior_net.predict(encoded_smi)[0][0]
+    scaled_reward = np.clip(scaled_reward, 0, 1.1)
     diversity = 1
 
     if len(smi_bank) >= 20:

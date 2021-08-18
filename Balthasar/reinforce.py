@@ -105,7 +105,6 @@ if __name__ == "__main__":
                     smi_bank.append(smi)
 
             r, T = get_terminal_reward(generated_tokens, smi_bank, melchior)
-            r = np.clip(r, 0, 1)
             r_vec = get_padded_reward_vec(r, 0.9, T)
             distributed_reward_with_idx = np.vstack([r_vec, np.array(generated_token_ids)])
             input_batch.append(generated_token_ids)

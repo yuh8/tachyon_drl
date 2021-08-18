@@ -27,7 +27,6 @@ def get_melchior_model():
     #[BATCH, MAX_MOL_LEN, EMBEDDING_SIZE]
     melchior_out = get_encoder(token_embedding, padding_mask, NUM_LAYERS)
     #[BATCH, EMBEDDING_SIZE]
-    # melchior_out = tf.reduce_max(melchior_out, axis=1)
     melchior_out = tf.reshape(melchior_out, (-1, MAX_MOL_LEN * EMBEDDING_SIZE))
     y_pred = layers.Dense(EMBEDDING_SIZE, activation='relu')(melchior_out)
     # [BATCH, 1]
@@ -37,7 +36,7 @@ def get_melchior_model():
 
 def get_optimizer(steps_per_epoch):
     lr_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
-        [steps_per_epoch * 20, steps_per_epoch * 30], [0.0001, 0.00001, 0.000001], name=None
+        [steps_per_epoch * 20, steps_per_epoch * 40], [0.0001, 0.00001, 0.000001], name=None
     )
     opt_op = tf.keras.optimizers.Adam(learning_rate=lr_fn)
     return opt_op

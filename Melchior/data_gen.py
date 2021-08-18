@@ -123,6 +123,7 @@ if __name__ == "__main__":
     get_val_data()
     df_train = pd.read_csv('data/train_data/df_train.csv')
     for x, y in data_iterator_test('data/test_data/df_test.csv'):
+        breakpoint()
         print(x.shape)
     # for x, y in data_iterator_train():
     #     print(x.shape)
