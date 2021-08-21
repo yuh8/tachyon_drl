@@ -5,7 +5,7 @@ from tensorflow import keras
 from multiprocessing import freeze_support
 from data_gen_predictor import data_iterator_train, data_iterator_test
 from src.embed_utils import get_predictor_model
-from src.misc_utils import create_folder
+from src.misc_utils import create_folder, save_model_to_json, load_json_model
 from src.CONSTS import EMBEDDING_SIZE_PRED, BATCH_SIZE_PRED
 
 
@@ -23,6 +23,13 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         arg2 = step * (self.warmup_steps ** -1.5)
 
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
+    def get_config(self):
+        config = {
+            'd_model': self.d_model,
+            'warmup_steps': self.warmup_steps,
+        }
+        return config
 
 
 def get_optimizer():
@@ -47,7 +54,7 @@ if __name__ == "__main__":
     smi_inputs, y_pred = get_predictor_model()
     opt_op = get_optimizer()
     model = keras.Model(smi_inputs, y_pred)
-    model.compile(optimizer='adam',
+    model.compile(optimizer=get_optimizer(),
                   loss='mse')
     model.summary()
 
@@ -58,4 +65,14 @@ if __name__ == "__main__":
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('predictor_data/test_data/df_test.csv'),
                          return_dict=True)
-    model.save_weights('./predictor_weights/predictor')
+
+    model.save_weights("./predictor_weights/predictor")
+    create_folder("predictor_model")
+    save_model_to_json(model, "predictor_model/predictor_model.json")
+    model_new = load_json_model("predictor_model/predictor_model.json")
+    model_new.compile(optimizer=get_optimizer(),
+                      loss='mse')
+    model_new.load_weights("./predictor_weights/predictor")
+
+    res = model_new.evaluate(data_iterator_test('predictor_data/test_data/df_test.csv'),
+                             return_dict=True)

@@ -90,7 +90,7 @@ def get_encoded_smi_rl(smi_token_list):
 
     if len(encoded_smi) <= MAX_MOL_LEN:
         num_pads = MAX_MOL_LEN - len(encoded_smi)
-        # 39 is the padding number which will be masked
+        # len(MOL_DICT) is the padding number which will be masked
         encoded_smi += [len(MOL_DICT)] * num_pads
     else:
         encoded_smi = encoded_smi[:MAX_MOL_LEN]

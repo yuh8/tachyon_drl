@@ -59,7 +59,7 @@ def get_terminal_reward(smi_token_list, smi_bank, predictor_net):
     if not is_valid_smile(smi):
         return 0, T
 
-    scaled_reward = predictor_net.predict(encoded_smi)[0][0]
+    scaled_reward = predictor_net(encoded_smi, training=False).numpy()[0][0]
     reward = scaled_reward * (Y_MAX - Y_MIN) + Y_MIN
     reward = np.exp(reward / 4 - 1)
     diversity = 1
@@ -69,8 +69,6 @@ def get_terminal_reward(smi_token_list, smi_bank, predictor_net):
 
     if diversity < 0.75:
         rew_div = 0.9
-    elif diversity > 0.9:
-        rew_div = 1
     else:
         rew_div = 1
 
@@ -79,7 +77,7 @@ def get_terminal_reward(smi_token_list, smi_bank, predictor_net):
 
 def get_time_distributed_rewards(reward, gamma, T):
     # Most reward assigned to the last time step
-    t_distribute = T - np.arange(T)
+    t_distribute = T - np.arange(T) - 1
     return (gamma**t_distribute) * reward
 
 

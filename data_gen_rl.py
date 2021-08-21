@@ -1,8 +1,10 @@
 import numpy as np
+from scipy.special import softmax
 from src.CONSTS import MAX_MOL_LEN, MOL_DICT
 
 
-def sample_single_token_from_probs(probs):
+def sample_single_token_from_logits(logits):
+    probs = softmax(logits)
     indices = np.arange(len(MOL_DICT) + 1)
     return np.random.choice(indices, p=probs)
 
@@ -23,8 +25,8 @@ def generate_smile(gen_net):
             x = encoded_token + [len(MOL_DICT)] * pad_len
         x = np.array([x])
         # [1, MAX_MOL_LEN, DICT_LEN + 1]
-        y = gen_net.predict(x)
-        sample_token_idx = sample_single_token_from_probs(y[0][sample_index])
+        y = gen_net(x, training=False).numpy()
+        sample_token_idx = sample_single_token_from_logits(y[0][sample_index])
         # skip padding generation
         if sample_token_idx == len(MOL_DICT):
             continue

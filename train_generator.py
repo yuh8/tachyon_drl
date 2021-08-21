@@ -1,11 +1,10 @@
 import pickle
 import pandas as pd
 import tensorflow as tf
-from tensorflow import keras
 from multiprocessing import freeze_support
 from data_gen_generator import data_iterator_train, data_iterator_test
 from src.embed_utils import get_generator_model
-from src.misc_utils import create_folder
+from src.misc_utils import create_folder, save_model_to_json, load_json_model
 from src.CONSTS import MOL_DICT, BATCH_SIZE_GEN, EMBEDDING_SIZE_GEN
 
 
@@ -24,13 +23,20 @@ class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
 
         return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
 
+    def get_config(self):
+        config = {
+            'd_model': self.d_model,
+            'warmup_steps': self.warmup_steps,
+        }
+        return config
+
 
 def get_optimizer():
     opt_op = tf.keras.optimizers.Adam(learning_rate=CustomSchedule())
     return opt_op
 
 
-def loss_func(y, logits):
+def loss_func_gen(y, logits):
     '''
     y : [BATCH, MAX_MOL_LEN]
     logits: [BATCH, MAX_MOL_LEN, DICT_SIZE]
@@ -60,15 +66,25 @@ if __name__ == "__main__":
 
     # train
     smi_inputs, logits = get_generator_model()
-    model = keras.Model(smi_inputs, logits)
+    model = tf.keras.Model(smi_inputs, logits)
     model.compile(optimizer=get_optimizer(),
-                  loss=loss_func)
+                  loss=loss_func_gen)
     model.summary()
     model.fit(data_iterator_train(),
-              epochs=40,
+              epochs=60,
               validation_data=Xy_val,
               callbacks=callbacks,
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('generator_data/test_data/df_test.csv'),
                          return_dict=True)
-    model.save_weights('./weights/generator')
+
+    model.save_weights("./generator_weights/generator")
+    create_folder("generator_model")
+    save_model_to_json(model, "generator_model/generator_model.json")
+    model_new = load_json_model("generator_model/generator_model.json")
+    model_new.compile(optimizer=get_optimizer(),
+                      loss=loss_func_gen)
+    model_new.load_weights("./generator_weights/generator")
+
+    res = model_new.evaluate(data_iterator_test('generator_data/test_data/df_test.csv'),
+                             return_dict=True)
