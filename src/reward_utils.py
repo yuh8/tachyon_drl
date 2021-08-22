@@ -1,4 +1,5 @@
 import numpy as np
+import tensorflow as tf
 from rdkit import Chem
 from rdkit import DataStructs
 from rdkit import RDLogger
@@ -59,7 +60,8 @@ def get_terminal_reward(smi_token_list, smi_bank, predictor_net):
     if not is_valid_smile(smi):
         return 0, T
 
-    scaled_reward = predictor_net(encoded_smi, training=False).numpy()[0][0]
+    with tf.device('/cpu:0'):
+        scaled_reward = predictor_net(encoded_smi, training=False).numpy()[0][0]
     reward = scaled_reward * (Y_MAX - Y_MIN) + Y_MIN
     reward = np.exp(reward / 4 - 1)
     diversity = 1
@@ -87,7 +89,7 @@ def get_padded_reward_vec(reward, gamma, T):
         pad_len = MAX_MOL_LEN - len(distributed_reward)
         padded_reward = np.pad(distributed_reward,
                                (0, pad_len),
-                               'constant', constant_values=0)
+                               'constant', constant_values=np.max(distributed_reward))
         return padded_reward
 
     return distributed_reward[:MAX_MOL_LEN]

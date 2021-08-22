@@ -2,12 +2,12 @@ import pickle
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras import layers
 from multiprocessing import freeze_support
-from data_gen import data_iterator_train, data_iterator_test
-from src.misc_utils import create_folder
-from src.CONSTS import (EMBEDDING_SIZE, MAX_MOL_LEN, MOL_DICT, BATCH_SIZE)
+from data_gen_generator import data_iterator_train, data_iterator_test
+from src.embed_utils import get_token_embedding
+from src.misc_utils import create_folder, save_model_to_json, load_json_model
+from src.CONSTS import MAX_MOL_LEN, MOL_DICT, BATCH_SIZE_GEN, EMBEDDING_SIZE_GEN
 
 
 def get_padding_mask(x):
@@ -30,57 +30,51 @@ def loss_func(y, logits):
     return tf.reduce_sum(_loss) / tf.reduce_sum(mask)
 
 
-class CasparLayer(layers.Layer):
-    def __init__(self):
-        super(CasparLayer, self).__init__()
-        self.embedding = layers.Embedding(len(MOL_DICT) + 1, EMBEDDING_SIZE)
-        self.gru = layers.GRU(1024, return_sequences=True, dropout=0.3)
-        self.dense = layers.Dense(len(MOL_DICT) + 1)
-
-    def call(self, x, padding_mask):
-        x = self.embedding(x)
-        x = self.gru(x, mask=padding_mask)
-        #[BATCH, MAX_MOL_LEN, MOL_DICT_LEN+1]
-        logits = self.dense(x)
-        return logits
-
-
-def get_caspar_model():
-    # [BATCH, MAX_MOL_LEN]
+def get_lstm_model():
     smi_inputs = layers.Input(shape=(MAX_MOL_LEN,), dtype=np.int32)
+    token_embedding = get_token_embedding(smi_inputs, EMBEDDING_SIZE_GEN)
     padding_mask = get_padding_mask(smi_inputs)
-    caspar_out = CasparLayer()(smi_inputs, padding_mask)
-    # [BATCH, MAX_MOL_LEN, DICT_LEN]
-    logits = layers.Dense(len(MOL_DICT) + 1)(caspar_out)
+    token_embedding = layers.GRU(256, return_sequences=True, dropout=0.1)(token_embedding, mask=padding_mask)
+    token_embedding = layers.GRU(256, return_sequences=True, dropout=0.1)(token_embedding, mask=padding_mask)
+    logits = layers.Dense(len(MOL_DICT) + 1)(token_embedding)
     return smi_inputs, logits
 
 
 if __name__ == "__main__":
     freeze_support()
-    model_path = 'model/train/'
-    create_folder(model_path)
-    callbacks = [tf.keras.callbacks.ModelCheckpoint(model_path,
+    ckpt_path = 'checkpoints/generator/'
+    create_folder(ckpt_path)
+    callbacks = [tf.keras.callbacks.ModelCheckpoint(ckpt_path,
                                                     save_freq='epoch',
                                                     save_weights_only=True,
                                                     monitor='loss',
                                                     mode='min',
                                                     save_best_only=True)]
-    steps_per_epoch = pd.read_csv('data/train_data/df_train.csv').shape[0] // BATCH_SIZE
-    with open('data/test_data/Xy_val.pkl', 'rb') as handle:
+    steps_per_epoch = pd.read_csv('generator_data/train_data/df_train.csv').shape[0] // BATCH_SIZE_GEN
+    with open('generator_data/test_data/Xy_val.pkl', 'rb') as handle:
         Xy_val = pickle.load(handle)
 
     # train
-    smi_inputs, logits = get_caspar_model()
-    model = keras.Model(smi_inputs, logits)
+    smi_inputs, logits = get_lstm_model()
+    model = tf.keras.Model(smi_inputs, logits)
     model.compile(optimizer='adam',
                   loss=loss_func)
     model.summary()
-
     model.fit(data_iterator_train(),
-              epochs=30,
+              epochs=2,
               validation_data=Xy_val,
               callbacks=callbacks,
               steps_per_epoch=steps_per_epoch)
-    res = model.evaluate(data_iterator_test('data/test_data/df_test.csv'),
+    res = model.evaluate(data_iterator_test('generator_data/test_data/df_test.csv'),
                          return_dict=True)
-    model.save('model/Caspar/', save_traces=False)
+
+    model.save_weights("./generator_lstm_weights/generator")
+    create_folder("generator_lstm_model")
+    save_model_to_json(model, "generator_lstm_model/generator_lstm_model.json")
+    model_new = load_json_model("generator_lstm_model/generator_lstm_model.json")
+    model_new.compile(optimizer='adam',
+                      loss=loss_func)
+    model_new.load_weights("./generator_lstm_weights/generator")
+
+    res = model_new.evaluate(data_iterator_test('generator_data/test_data/df_test.csv'),
+                             return_dict=True)

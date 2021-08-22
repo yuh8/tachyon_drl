@@ -7,13 +7,16 @@ from src.CONSTS import MOL_DICT, ALPHA, BATCH_SIZE_RL, EMBEDDING_SIZE_GEN
 
 
 def loss_function(distributed_reward_with_idx, action_logits):
+    # [BATCH, MAX_MOL_LEN, DICT_LEN + 1]
+    action_logits = tf.cast(action_logits, tf.float32)
     action_probs = tf.nn.softmax(action_logits, axis=-1)
     # [BATCH, MAX_MOL_LEN]
-    distributed_reward = distributed_reward_with_idx[:, 0, :]
+    distributed_reward = distributed_reward_with_idx[:, 0]
+    distributed_reward = tf.cast(distributed_reward, tf.float32)
     # [BATCH, MAX_MOL_LEN, 1]
     distributed_reward = tf.expand_dims(distributed_reward, axis=-1)
     # [BATCH, MAX_MOL_LEN]
-    reward_idx = tf.cast(distributed_reward_with_idx[:, 1, :], tf.int32)
+    reward_idx = tf.cast(distributed_reward_with_idx[:, 1], tf.int32)
     # [BATCH, MAX_MOL_LEN, MOL_DICT_LEN + 1]
     reward_onehot = tf.one_hot(reward_idx, len(MOL_DICT) + 1,
                                on_value=1, off_value=0, axis=-1)
@@ -36,6 +39,38 @@ def loss_function(distributed_reward_with_idx, action_logits):
     # Scalar
     loss_ = tf.reduce_mean(loss_)
     return loss_
+
+
+def loss_function_ce(distributed_reward_with_idx, action_logits):
+    # [BATCH, MAX_MOL_LEN, DICT_LEN + 1]
+    action_logits = tf.cast(action_logits, tf.float32)
+    action_probs = tf.nn.softmax(action_logits, axis=-1)
+    # [BATCH, MAX_MOL_LEN]
+    distributed_reward = distributed_reward_with_idx[:, 0]
+    distributed_reward = tf.cast(distributed_reward, tf.float32)
+    # [BATCH, MAX_MOL_LEN, 1]
+    distributed_reward = tf.expand_dims(distributed_reward, axis=-1)
+    # [BATCH, MAX_MOL_LEN]
+    reward_idx = tf.cast(distributed_reward_with_idx[:, 1], tf.int32)
+    # [BATCH, MAX_MOL_LEN, MOL_DICT_LEN + 1]
+    reward_onehot = tf.one_hot(reward_idx, len(MOL_DICT) + 1,
+                               on_value=1, off_value=0, axis=-1)
+    reward_onehot = tf.cast(reward_onehot, distributed_reward.dtype)
+    distributed_reward = distributed_reward * reward_onehot
+    # [BATCH, MAX_MOL_LEN]
+    mask = tf.math.less(reward_idx, len(MOL_DICT))
+    # [BATCH, MAX_MOL_LEN]
+    negative_reward = tf.keras.losses.categorical_crossentropy(distributed_reward, action_probs)
+    # reward = action_probs * distributed_reward
+    # negative_entropy = action_probs * ALPHA * tf.math.log(action_probs)
+    # loss_ = negative_entropy - reward
+    mask = tf.cast(mask, negative_reward.dtype)
+    negative_reward *= mask
+    # [BATCH, MAX_MOL_LEN]
+    negative_reward = tf.reduce_sum(negative_reward, axis=-1)
+    # Scalar
+    negative_reward = tf.reduce_mean(negative_reward)
+    return negative_reward
 
 
 class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -68,7 +103,7 @@ def get_optimizer():
 
 def create_policy_model(model_path):
     gen_rl = load_json_model(model_path)
-    gen_rl.compile(optimizer=get_optimizer(), loss=loss_function)
+    gen_rl.compile(optimizer=get_optimizer(), loss=loss_function_ce)
     return gen_rl
 
 
@@ -78,17 +113,26 @@ def create_predict_model(model_path):
     return pred_net
 
 
+@tf.function
+def train_policy(state_batch, reward_batch):
+    with tf.GradientTape() as tape:  # Record operations for automatic differentiation.
+        actions_logits = gen_rl(state_batch, training=True)
+        policy_loss = loss_function(reward_batch, actions_logits)
+
+    policy_grads = tape.gradient(policy_loss, gen_rl.trainable_variables)
+    policy_grads, _ = tf.clip_by_global_norm(policy_grads, 1)
+    policy_optimizer.apply_gradients(zip(policy_grads, gen_rl.trainable_variables))
+    return policy_loss
+
+
 if __name__ == "__main__":
     gen_rl = create_policy_model("generator_model/generator_model.json")
     pred_net = create_predict_model("predictor_model/predictor_model.json")
-    breakpoint()
     gen_rl.load_weights('./generator_weights/generator')
     pred_net.load_weights('./predictor_weights/predictor')
     pred_net.trainable = False
     smi_bank = []
-    running_reward = 0
-    running_validity = 0
-    for ii in range(10000):
+    for ii in range(53):
         input_batch = []
         target_batch = []
         batch_reward = 0
@@ -109,17 +153,17 @@ if __name__ == "__main__":
                     smi_bank.append(smi)
 
             r, T = get_terminal_reward(generated_tokens, smi_bank, pred_net)
-            r_vec = get_padded_reward_vec(r, 0.99, T)
+            r_vec = get_padded_reward_vec(r, 0.9, T)
             distributed_reward_with_idx = np.vstack([r_vec, np.array(generated_token_ids)])
             input_batch.append(generated_token_ids)
             target_batch.append(distributed_reward_with_idx)
             batch_reward += r
-        running_reward = 0.1 * batch_reward + (1 - 0.1) * running_reward
         input_batch = np.vstack(input_batch)
         target_batch = np.stack(target_batch)
         loss = gen_rl.train_on_batch(input_batch, target_batch)
+        # loss = train_policy(input_batch, target_batch)
         print("train_loss={0}, reward={1} and validity={2} at iteration {3}".format(np.round(loss, 2),
-                                                                                    np.round(running_reward, 2),
+                                                                                    np.round((batch_reward / BATCH_SIZE_RL), 2),
                                                                                     np.round(batch_validity / BATCH_SIZE_RL, 2), ii))
         if ii % 10 == 0:
             gen_rl.save_weights('./reinforce_weights/reinforce')

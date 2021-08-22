@@ -71,12 +71,14 @@ if __name__ == "__main__":
                   loss=loss_func_gen)
     model.summary()
     model.fit(data_iterator_train(),
-              epochs=60,
+              epochs=30,
               validation_data=Xy_val,
               callbacks=callbacks,
               steps_per_epoch=steps_per_epoch)
     res = model.evaluate(data_iterator_test('generator_data/test_data/df_test.csv'),
                          return_dict=True)
+    model.save("generator_full_model/", include_optimizer=False)
+    breakpoint()
 
     model.save_weights("./generator_weights/generator")
     create_folder("generator_model")
